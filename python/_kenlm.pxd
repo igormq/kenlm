@@ -1,3 +1,6 @@
+from libcpp.string cimport string
+from libcpp.vector cimport vector
+
 cdef extern from "lm/word_index.hh" namespace "lm":
     ctypedef unsigned WordIndex
 
@@ -10,12 +13,12 @@ cdef extern from "lm/state.hh" namespace "lm::ngram":
     cdef cppclass State :
         int Compare(const State &other) const
 
-    int hash_value(const State &state) 
+    int hash_value(const State &state)
 
 cdef extern from "lm/virtual_interface.hh" namespace "lm::base":
     cdef cppclass Vocabulary:
         WordIndex Index(char*)
-        WordIndex BeginSentence() 
+        WordIndex BeginSentence()
         WordIndex EndSentence()
         WordIndex NotFound()
 
@@ -37,14 +40,24 @@ cdef extern from "util/mmap.hh" namespace "util":
         READ
         PARALLEL_READ
 
+cdef extern from "lm/enumerate_vocab.hh" namespace "lm":
+
+    ctypedef string StringPiece "std::string"
+
+    cdef cppclass EnumerateVocab:
+        void Add(WordIndex index, const StringPiece &str)
+
+    cdef cppclass RetriveStrEnumerateVocab(EnumerateVocab):
+        vector[string] vocabulary
+
 cdef extern from "lm/config.hh" namespace "lm::ngram":
     cdef cppclass Config:
         Config()
         float probing_multiplier
         LoadMethod load_method
+        EnumerateVocab* enumerate_vocab
 
 cdef extern from "lm/model.hh" namespace "lm::ngram":
     cdef Model *LoadVirtual(char *, Config &config) except +
     #default constructor
     cdef Model *LoadVirtual(char *) except +
-
