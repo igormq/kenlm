@@ -1,4 +1,5 @@
 import os
+
 cimport _kenlm
 
 cdef bytes as_str(data):
@@ -28,7 +29,7 @@ cdef class FullScoreReturn:
 
     def __repr__(self):
         return '{0}({1}, {2}, {3})'.format(self.__class__.__name__, repr(self.log_prob), repr(self.ngram_length), repr(self.oov))
-    
+
     property log_prob:
         def __get__(self):
             return self.log_prob
@@ -46,7 +47,7 @@ cdef class State:
     Wrapper around lm::ngram::State so that python code can make incremental queries.
 
     Notes:
-        * rich comparisons 
+        * rich comparisons
         * hashable
     """
 
@@ -82,21 +83,59 @@ class LoadMethod:
     READ = _kenlm.READ
     PARALLEL_READ = _kenlm.PARALLEL_READ
 
+cdef class RetriveStrEnumerateVocab:
+    """
+    Implement a callback to retrive the dictionary of language model.
+    """
+    cdef _kenlm.RetriveStrEnumerateVocab* thisptr
+    cdef public list vocabulary
+
+    def __cinit__(self):
+        if type(self) is RetriveStrEnumerateVocab:
+
+            # Try to create an instance of the wrapped class.
+            self.thisptr = new _kenlm.RetriveStrEnumerateVocab()
+
+            # If we couldn't create one, we're out of memory.
+            if self.thisptr is NULL:
+                raise MemoryError()
+
+    def __dealloc__(self):
+        if type(self) is RetriveStrEnumerateVocab and self.thisptr is not NULL:
+            del self.thisptr
+
+    property vocab:
+        def __get__(self):
+            return [v.decode('utf8') for v in self.thisptr.vocabulary]
+
+    cdef void Add(self, _kenlm.WordIndex index, const _kenlm.StringPiece &str):
+        self.thisptr.Add(index, str)
+
+
+
 cdef class Config:
     """
     Wrapper around lm::ngram::Config.
     Pass this to Model's constructor to set the load_method.
     """
     cdef _kenlm.Config _c_config
+    cdef RetriveStrEnumerateVocab enumerate_vocab
 
     def __init__(self):
         self._c_config = _kenlm.Config()
+        self.enumerate_vocab = RetriveStrEnumerateVocab()
+        self._c_config.enumerate_vocab  = <_kenlm.RetriveStrEnumerateVocab*>self.enumerate_vocab.thisptr
 
     property load_method:
         def __get__(self):
             return self._c_config.load_method
+
         def __set__(self, to):
             self._c_config.load_method = to
+
+    property vocab:
+        def __get__(self):
+            return self.enumerate_vocab.vocab
 
 cdef class Model:
     """
@@ -105,7 +144,8 @@ cdef class Model:
 
     cdef _kenlm.Model* model
     cdef public bytes path
-    cdef _kenlm.const_Vocabulary* vocab
+    cdef _kenlm.const_Vocabulary* _c_vocab
+    cdef public list vocab
 
     def __init__(self, path, Config config = Config()):
         """
@@ -121,7 +161,8 @@ cdef class Model:
             exception_message = str(exception).replace('\n', ' ')
             raise IOError('Cannot read model \'{}\' ({})'.format(path, exception_message))\
                     from exception
-        self.vocab = &self.model.BaseVocabulary()
+        self._c_vocab = &self.model.BaseVocabulary()
+        self.vocab = config.vocab
 
     def __dealloc__(self):
         del self.model
@@ -133,7 +174,7 @@ cdef class Model:
     def score(self, sentence, bos = True, eos = True):
         """
         Return the log10 probability of a string.  By default, the string is
-        treated as a sentence.  
+        treated as a sentence.
           return log10 p(sentence </s> | <s>)
 
         If you do not want to condition on the beginning of sentence, pass
@@ -178,10 +219,10 @@ cdef class Model:
         cdef _kenlm.State out_state
         cdef float total = 0
         for word in words:
-            total += self.model.BaseScore(&state, self.vocab.Index(word), &out_state)
+            total += self.model.BaseScore(&state, self._c_vocab.Index(word), &out_state)
             state = out_state
         if eos:
-            total += self.model.BaseScore(&state, self.vocab.EndSentence(), &out_state)
+            total += self.model.BaseScore(&state, self._c_vocab.EndSentence(), &out_state)
         return total
 
     def perplexity(self, sentence):
@@ -191,7 +232,7 @@ cdef class Model:
         """
         words = len(as_str(sentence).split()) + 1 # For </s>
         return 10.0**(-self.score(sentence) / words)
-    
+
     def full_scores(self, sentence, bos = True, eos = True):
         """
         full_scores(sentence, bos = True, eos = Ture) -> generate full scores (prob, ngram length, oov)
@@ -210,13 +251,13 @@ cdef class Model:
         cdef float total = 0
         cdef _kenlm.WordIndex wid
         for word in words:
-            wid = self.vocab.Index(word)
+            wid = self._c_vocab.Index(word)
             ret = self.model.BaseFullScore(&state, wid, &out_state)
             yield (ret.prob, ret.ngram_length, wid == 0)
             state = out_state
         if eos:
             ret = self.model.BaseFullScore(&state,
-                self.vocab.EndSentence(), &out_state)
+                self._c_vocab.EndSentence(), &out_state)
             yield (ret.prob, ret.ngram_length, False)
 
 
@@ -237,9 +278,9 @@ cdef class Model:
         :param state: the context (defaults to NullContext)
         :returns: p(word|state)
         """
-        cdef float total = self.model.BaseScore(&in_state._c_state, self.vocab.Index(as_str(word)), &out_state._c_state)
+        cdef float total = self.model.BaseScore(&in_state._c_state, self._c_vocab.Index(as_str(word)), &out_state._c_state)
         return total
-    
+
     def BaseFullScore(self, State in_state, str word, State out_state):
         """
         Wrapper around model.BaseScore(in_state, Index(word), out_state)
@@ -248,13 +289,13 @@ cdef class Model:
         :param state: the context (defaults to NullContext)
         :returns: FullScoreReturn(word|state)
         """
-        cdef _kenlm.WordIndex wid = self.vocab.Index(as_str(word))
+        cdef _kenlm.WordIndex wid = self._c_vocab.Index(as_str(word))
         cdef _kenlm.FullScoreReturn ret = self.model.BaseFullScore(&in_state._c_state, wid, &out_state._c_state)
         return FullScoreReturn(ret.prob, ret.ngram_length, wid == 0)
-    
+
     def __contains__(self, word):
         cdef bytes w = as_str(word)
-        return (self.vocab.Index(w) != 0)
+        return (self._c_vocab.Index(w) != 0)
 
     def __repr__(self):
         return '<Model from {0}>'.format(os.path.basename(self.path))
