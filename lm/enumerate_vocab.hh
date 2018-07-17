@@ -1,6 +1,9 @@
 #ifndef LM_ENUMERATE_VOCAB_H
 #define LM_ENUMERATE_VOCAB_H
 
+#include <string>
+#include <vector>
+
 #include "lm/word_index.hh"
 #include "util/string_piece.hh"
 
@@ -20,6 +23,17 @@ class EnumerateVocab {
 
   protected:
     EnumerateVocab() {}
+};
+
+class RetriveStrEnumerateVocab : public EnumerateVocab {
+public:
+  RetriveStrEnumerateVocab() {}
+
+  void Add(WordIndex index, const StringPiece &str) {
+    vocabulary.push_back(std::string(str.data(), str.length()));
+  }
+
+  std::vector<std::string> vocabulary;
 };
 
 } // namespace lm
