@@ -1,9 +1,27 @@
 import glob
 import os
 import platform
+import re
 
 from Cython.Build import cythonize
 from setuptools import Extension, setup
+
+
+def read(*names, **kwargs):
+    with open(os.path.join(os.path.dirname(__file__), *names)) as fp:
+        return fp.read()
+
+
+def find_version(*file_paths):
+    version_file = read(*file_paths)
+    version_match = re.search(r"^__version__ = ['\"]([^'\"]*)['\"]", version_file, re.M)
+    if version_match:
+        return version_match.group(1)
+    raise RuntimeError("Unable to find version string.")
+
+
+readme = read('README.md')
+VERSION = find_version('python', 'kenlm.pyx')
 
 extra_compile_args = []
 libraries = []
@@ -52,4 +70,20 @@ ext_modules = cythonize(
         libraries=libraries,
         extra_compile_args=extra_compile_args))
 
-setup(name='kenlm', ext_modules=ext_modules, include_package_data=True, setup_requires=["cython"])
+setup(
+    name='kenlm',
+    version=VERSION,
+    description='Unoficial KenLM python wrapper with aditional features',
+    author='Igor Macedo Quintanilha',
+    author_email='igormq@poli.ufrj.br',
+    url='http://github.com/igormq/kenlm',
+    ext_modules=ext_modules,
+    include_package_data=True,
+    setup_requires=["cython"],
+    long_description=readme,
+    classifiers=(
+        "Programming Language :: Python :: 3",
+        "License :: OSI Approved :: Apache Software License",
+        "Operating System :: OS Independent",
+    ),
+    keywords='kenlm language model lm nlp')
