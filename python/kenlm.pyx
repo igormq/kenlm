@@ -2,6 +2,8 @@ import os
 
 cimport _kenlm
 
+__version__ = '0.1.0'
+
 cdef bytes as_str(data):
     if isinstance(data, bytes):
         return data
@@ -147,13 +149,14 @@ cdef class Model:
     cdef _kenlm.const_Vocabulary* _c_vocab
     cdef public list vocab
 
-    def __init__(self, path, Config config = Config()):
+    def __init__(self, path):
         """
         Load the language model.
 
         :param path: path to an arpa file or a kenlm binary file.
         :param config: configuration options (see lm/config.hh for documentation)
         """
+        config = Config()
         self.path = os.path.abspath(as_str(path))
         try:
             self.model = _kenlm.LoadVirtual(self.path, config._c_config)
